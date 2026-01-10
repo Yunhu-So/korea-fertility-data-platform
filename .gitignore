@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+*.pyc
+
+# Data layers (keep bronze if you want, but ignore derived data)
+data/silver/
+data/gold/
+
+# OS
+.DS_Store
+
