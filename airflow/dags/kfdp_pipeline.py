@@ -64,4 +64,10 @@ with DAG(
         },
     )
 
-    ingest_excel >> load_to_duckdb >> dbt_run >> dbt_test
+    log_success = BashOperator(
+        task_id="log_run_success",
+        bash_command=f"python {BASE}/scripts/log_pipeline_run.py --db {BASE}/warehouse/kfdp.duckdb --status success --source_file tfr_source.xlsx",
+        env={"PYTHONPATH": f"{BASE}/src"},
+    )        
+    
+    ingest_excel >> load_to_duckdb >> dbt_run >> dbt_test >> log_success
