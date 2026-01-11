@@ -215,3 +215,11 @@ data/gold/
 # OS
 .DS_Store
 
+
+# Local warehouse
+warehouse/*.duckdb
+
+# dbt artifacts
+dbt/kfdp/target/
+dbt/kfdp/logs/
+docs/dbt/
