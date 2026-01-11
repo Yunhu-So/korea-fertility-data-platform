@@ -1,0 +1,16 @@
+name: kfdp
+version: 1.0.0
+config-version: 2
+
+profile: kfdp
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+models:
+  kfdp:
+    +materialized: view
+    silver:
+      +schema: silver
+    gold:
+      +schema: gold

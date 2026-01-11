@@ -1,0 +1,7 @@
+kfdp:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: warehouse/kfdp.duckdb
+      threads: 4
