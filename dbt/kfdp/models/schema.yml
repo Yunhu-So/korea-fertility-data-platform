@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: silver
+    schema: silver
+    tables:
+      - name: tfr_long
+        description: "Normalized TFR data loaded from silver parquet."
+
+models:
+  - name: stg_tfr_long
+    description: "Staging model for TFR with strict typing and basic constraints."
+    columns:
+      - name: country
+        tests: [not_null]
+      - name: indicator
+        tests: [not_null]
+      - name: year
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+
+  - name: mart_tfr_metrics
+    description: "Gold mart with derived TFR metrics (yoy change, moving avg, replacement-rate flag)."
+    columns:
+      - name: country
+        tests: [not_null]
+      - name: year
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+      - name: is_below_replacement
+        tests: [not_null]
