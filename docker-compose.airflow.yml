@@ -1,0 +1,21 @@
+services:
+  airflow:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: kfdp-airflow
+    ports:
+      - "8080:8080"
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - PYTHONPATH=/opt/airflow/src
+      - DBT_PROFILES_DIR=/opt/airflow/dbt
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - ./warehouse:/opt/airflow/warehouse
+      - ./dbt:/opt/airflow/dbt
+      - ./src:/opt/airflow/src
+      - ./scripts:/opt/airflow/scripts
+    command: >
+      bash -lc "airflow standalone"
