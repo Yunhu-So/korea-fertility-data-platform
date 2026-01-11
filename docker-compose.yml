@@ -1,0 +1,24 @@
+services:
+  kfdp-run:
+    build: .
+    container_name: kfdp-run
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONPATH=/app/src
+      - DBT_PROFILES_DIR=/app/dbt
+    command: >
+      bash -lc "
+        python src/kfdp/cli/ingest_tfr.py
+          --input data/bronze/tfr_source.xlsx
+          --output data/silver/tfr_long.parquet
+        &&
+        python scripts/load_silver_to_duckdb.py
+          --db warehouse/kfdp.duckdb
+          --parquet data/silver/tfr_long.parquet
+        &&
+        dbt run --project-dir dbt/kfdp
+        &&
+        dbt test --project-dir dbt/kfdp
+      "
