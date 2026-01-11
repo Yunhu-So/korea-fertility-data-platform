@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+"""
+Utility script for recording pipeline run metadata.
+
+This script inserts a record into the ``ops.pipeline_runs`` table after
+an ingestion/transformation run has completed.  It captures the timestamp,
+status, source file name and basic row counts.  If both a ``main_gold``
+and ``gold`` schema are present, ``main_gold`` takes precedence for the
+gold row count.
+"""
+
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,15 +18,33 @@ import duckdb
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Log pipeline run metadata to DuckDB.")
-    p.add_argument("--db", default="warehouse/kfdp.duckdb")
-    p.add_argument("--status", required=True, choices=["success", "failed"])
-    p.add_argument("--source_file", default="tfr_source.xlsx")
-    args = p.parse_args()
+    """Parse arguments and log a pipeline run into DuckDB."""
+    parser = argparse.ArgumentParser(
+        description="Log pipeline run metadata to DuckDB."
+    )
+    parser.add_argument(
+        "--db",
+        default="warehouse/kfdp.duckdb",
+        help="Path to the DuckDB database file",
+    )
+    parser.add_argument(
+        "--status",
+        required=True,
+        choices=["success", "failed"],
+        help="Execution status of the pipeline run",
+    )
+    parser.add_argument(
+        "--source-file",
+        dest="source_file",
+        default="tfr_source.xlsx",
+        help="Name of the input source file",
+    )
+    args = parser.parse_args()
 
     db_path = Path(args.db)
     con = duckdb.connect(str(db_path))
 
+    # Ensure the ops schema and table exist
     con.execute("CREATE SCHEMA IF NOT EXISTS ops;")
     con.execute(
         """
@@ -32,28 +60,27 @@ def main() -> None:
         """
     )
 
-    # silver stats
-    silver = con.execute(
+    # Compute silver table statistics
+    silver_rows, min_year, max_year = con.execute(
         "SELECT COUNT(*), MIN(year), MAX(year) FROM silver.tfr_long;"
     ).fetchone()
-    silver_rows, min_year, max_year = silver[0], silver[1], silver[2]
 
-    # gold stats (환경에 따라 main_gold 또는 gold)
-    # 먼저 main_gold 시도 -> 없으면 gold 시도
-    gold_rows = None
-    try:
-        gold_rows = con.execute("SELECT COUNT(*) FROM main_gold.mart_tfr_metrics;").fetchone()[0]
-    except Exception:
+    # Compute gold table row count.  Some dbt‑duckdb versions create a 'main_gold'
+    # schema instead of 'gold', so we try both and use whichever exists.
+    gold_rows = 0
+    for schema in ("main_gold", "gold"):
         try:
-            gold_rows = con.execute("SELECT COUNT(*) FROM gold.mart_tfr_metrics;").fetchone()[0]
+            result = con.execute(
+                f"SELECT COUNT(*) FROM {schema}.mart_tfr_metrics;"
+            ).fetchone()
+            gold_rows = result[0]
+            break
         except Exception:
-            gold_rows = 0
+            continue
 
+    # Insert a new run record
     con.execute(
-        """
-        INSERT INTO ops.pipeline_runs
-        VALUES (?, ?, ?, ?, ?, ?, ?);
-        """,
+        "INSERT INTO ops.pipeline_runs VALUES (?, ?, ?, ?, ?, ?, ?);",
         [
             datetime.now(timezone.utc).replace(tzinfo=None),
             args.status,
@@ -64,7 +91,6 @@ def main() -> None:
             gold_rows,
         ],
     )
-
     con.close()
 
 

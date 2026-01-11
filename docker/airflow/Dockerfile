@@ -1,6 +1,6 @@
 FROM apache/airflow:2.9.3-python3.11
 
-# Airflow 공식 이미지 권장: pip는 airflow 유저로 실행
+# According to the official Airflow image, pip should run as the airflow user
 USER airflow
 
 COPY requirements.txt /tmp/requirements.txt

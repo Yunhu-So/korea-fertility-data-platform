@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+"""
+Utility script for loading a silver parquet file into DuckDB.
+
+The silver parquet is loaded into the ``silver`` schema of the local DuckDB
+warehouse.  The script drops any existing ``silver.tfr_long`` table and
+recreates it from the input parquet file.  Basic statistics are printed
+after the load completes.
+"""
+
 import argparse
 from pathlib import Path
 
@@ -8,39 +17,55 @@ from rich import print
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Load silver parquet into DuckDB (silver schema).")
-    p.add_argument("--db", type=str, default="warehouse/kfdp.duckdb", help="Path to DuckDB file")
-    p.add_argument("--parquet", type=str, default="data/silver/tfr_long.parquet", help="Input parquet path")
-    args = p.parse_args()
+    """Parse arguments and load the parquet file into DuckDB."""
+    parser = argparse.ArgumentParser(
+        description="Load a silver parquet file into DuckDB (silver schema)."
+    )
+    parser.add_argument(
+        "--db",
+        type=str,
+        default="warehouse/kfdp.duckdb",
+        help="Path to the DuckDB file",
+    )
+    parser.add_argument(
+        "--parquet",
+        type=str,
+        default="data/silver/tfr_long.parquet",
+        help="Path to the input parquet file",
+    )
+    args = parser.parse_args()
 
     db_path = Path(args.db)
-    pq_path = Path(args.parquet)
+    parquet_path = Path(args.parquet)
 
-    if not pq_path.exists():
-        raise FileNotFoundError(f"Parquet not found: {pq_path}. Run the ingestion first.")
+    if not parquet_path.exists():
+        raise FileNotFoundError(
+            f"Parquet file not found at {parquet_path}. Run the ingestion step first."
+        )
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-
     con = duckdb.connect(str(db_path))
 
-    # Create schemas
+    # Ensure schemas exist
     con.execute("CREATE SCHEMA IF NOT EXISTS silver;")
     con.execute("CREATE SCHEMA IF NOT EXISTS gold;")
 
-    # Recreate table (idempotent)
+    # Recreate the silver table from the parquet file
     con.execute("DROP TABLE IF EXISTS silver.tfr_long;")
     con.execute(
-        """
-        CREATE TABLE silver.tfr_long AS
-        SELECT * FROM read_parquet(?);
-        """,
-        [str(pq_path)],
+        "CREATE TABLE silver.tfr_long AS SELECT * FROM read_parquet(?);",
+        [str(parquet_path)],
     )
 
-    n = con.execute("SELECT COUNT(*) FROM silver.tfr_long;").fetchone()[0]
-    yr = con.execute("SELECT MIN(year), MAX(year) FROM silver.tfr_long;").fetchone()
+    # Log some basic stats
+    row_count = con.execute("SELECT COUNT(*) FROM silver.tfr_long;").fetchone()[0]
+    year_min, year_max = con.execute(
+        "SELECT MIN(year), MAX(year) FROM silver.tfr_long;"
+    ).fetchone()
 
-    print(f"[green]OK[/green] Loaded {n} rows into silver.tfr_long ({yr[0]}..{yr[1]})")
+    print(
+        f"[green]OK[/green] Loaded {row_count} rows into silver.tfr_long ({year_min}..{year_max})"
+    )
     con.close()
 
 

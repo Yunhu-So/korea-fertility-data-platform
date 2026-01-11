@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+"""
+Utilities for extracting Total Fertility Rate time series from Excel files.
+
+The source spreadsheets for TFR are usually arranged with a row of years
+followed by a row of numeric values.  This module detects the year and
+value rows heuristically and returns a tidy DataFrame suitable for
+downstream processing.
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union, Tuple, List
@@ -9,62 +18,60 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class TFRExtractConfig:
-    # None이면 "첫 시트" 자동 선택
+    """
+    Configuration for extracting a Total Fertility Rate time series from an Excel file.
+
+    Attributes
+    ----------
+    sheet_name: Optional[Union[str, int]]
+        If provided, a sheet name or index to read.  If ``None``, the first sheet is used.
+    min_year: int
+        Lower bound for plausible year values.
+    max_year: int
+        Upper bound for plausible year values.
+    min_year_cells: int
+        Minimum number of year‑like cells required to detect the header row.
+    """
+
     sheet_name: Optional[Union[str, int]] = None
     min_year: int = 1900
     max_year: int = 2100
-    # 연도/값 최소 매칭 개수(파일마다 다를 수 있어 살짝 낮춰둠)
     min_year_cells: int = 3
 
 
 def _to_int_if_yearish(x: object) -> Optional[int]:
-    """Try to coerce x into an int year (handles 1970, 1970.0, '1970.0', etc)."""
+    """Attempt to coerce ``x`` into an integer year (e.g. 1970, 1970.0, '1970.0')."""
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return None
-
-    # pandas Timestamp -> use year
     if isinstance(x, pd.Timestamp):
         return int(x.year)
-
-    # int
     if isinstance(x, int):
         return x
-
-    # float like 1970.0
     if isinstance(x, float):
-        if x.is_integer():
-            return int(x)
-        return None
-
-    # strings like "1970", "1970.0", " 1970 "
+        return int(x) if x.is_integer() else None
     if isinstance(x, str):
         s = x.strip().replace(",", "")
-        # handle trailing .0
         if s.endswith(".0"):
             s = s[:-2]
-        if s.isdigit():
-            return int(s)
-        return None
-
-    # other numeric types
+        return int(s) if s.isdigit() else None
+    # Fallback: try string conversion
     try:
         s = str(x).strip()
         if s.endswith(".0"):
             s = s[:-2]
-        if s.isdigit():
-            return int(s)
+        return int(s) if s.isdigit() else None
     except Exception:
         return None
 
-    return None
-
 
 def _is_year(x: object, min_year: int, max_year: int) -> bool:
+    """Return ``True`` if ``x`` is a year within the configured range."""
     y = _to_int_if_yearish(x)
     return y is not None and (min_year <= y <= max_year)
 
 
 def _as_float(x: object) -> Optional[float]:
+    """Convert ``x`` to a float if possible, otherwise return ``None``."""
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return None
     if isinstance(x, (int, float)) and not pd.isna(x):
@@ -84,9 +91,8 @@ def _as_float(x: object) -> Optional[float]:
 
 
 def _read_first_sheet_as_df(excel_path: Path) -> pd.DataFrame:
-    all_sheets = pd.read_excel(
-        excel_path, sheet_name=None, header=None, engine="openpyxl"
-    )
+    """Read the first sheet of an Excel workbook into a DataFrame with no header."""
+    all_sheets = pd.read_excel(excel_path, sheet_name=None, header=None, engine="openpyxl")
     if not isinstance(all_sheets, dict) or len(all_sheets) == 0:
         raise ValueError("Failed to read sheets from Excel.")
     first_key = next(iter(all_sheets.keys()))
@@ -97,35 +103,32 @@ def _detect_year_and_value_rows(
     raw: pd.DataFrame, min_year: int, max_year: int, min_year_cells: int
 ) -> Tuple[int, int, List[int]]:
     """
-    Find (year_row_idx, value_row_idx, year_cols) by:
-      - scanning rows for many year-like cells
-      - ensuring the NEXT row has numeric-ish values in those same cols
-    """
-    best = None  # (score, year_row, value_row, cols)
-    nrows = len(raw)
+    Detect the header row containing years and the subsequent row containing values.
 
-    for r in range(nrows - 1):
-        row = raw.iloc[r]
-        year_cols = [c for c in raw.columns if _is_year(row[c], min_year, max_year)]
+    The function scans each row looking for a set of columns that contain many
+    year‑like values (according to ``_is_year``).  It then checks that the next
+    row has numeric values in those same columns.  A simple scoring heuristic
+    prefers rows with more matched years and more numeric values below.
+    """
+    best: Optional[Tuple[int, int, int, List[int]]] = None  # (score, year_row_idx, value_row_idx, columns)
+
+    for row_idx in range(len(raw) - 1):
+        row = raw.iloc[row_idx]
+        year_cols = [col for col in raw.columns if _is_year(row[col], min_year, max_year)]
         if len(year_cols) < min_year_cells:
             continue
 
-        next_row = raw.iloc[r + 1]
-        numeric_count = 0
-        for c in year_cols:
-            if _as_float(next_row[c]) is not None:
-                numeric_count += 1
+        next_row = raw.iloc[row_idx + 1]
+        numeric_count = sum(1 for c in year_cols if _as_float(next_row[c]) is not None)
 
-        # score: prioritize more matched years and more numeric values below
         score = len(year_cols) * 10 + numeric_count
-
         if best is None or score > best[0]:
-            best = (score, r, r + 1, year_cols)
+            best = (score, row_idx, row_idx + 1, year_cols)
 
     if best is None:
         raise ValueError(
-            "Could not detect a 'year header row'. "
-            "Likely the years are stored in an unexpected format or the table layout differs."
+            "Could not detect a row with year headers.  "
+            "Check that the file contains a row of years followed by numeric values."
         )
 
     _, year_row_idx, value_row_idx, cols = best
@@ -136,8 +139,15 @@ def extract_tfr_long_from_excel(
     excel_path: Path,
     config: TFRExtractConfig = TFRExtractConfig(),
 ) -> pd.DataFrame:
+    """
+    Extract a long‑format DataFrame of total fertility rate values from an Excel workbook.
+
+    The resulting DataFrame has columns: ``country``, ``indicator``, ``year``, ``value``
+    and ``source_file``.  Any rows with missing values are dropped and the result
+    is sorted by year.
+    """
     if not excel_path.exists():
-        raise FileNotFoundError(f"Excel not found: {excel_path}")
+        raise FileNotFoundError(f"Excel file not found: {excel_path}")
 
     if config.sheet_name is None:
         raw = _read_first_sheet_as_df(excel_path)
@@ -153,14 +163,15 @@ def extract_tfr_long_from_excel(
     year_row = raw.iloc[year_row_idx]
     value_row = raw.iloc[value_row_idx]
 
-    years = []
-    values = []
-    for c in year_cols:
-        y = _to_int_if_yearish(year_row[c])
-        v = _as_float(value_row[c])
+    years: List[int] = []
+    values: List[float] = []
+    for col in year_cols:
+        y = _to_int_if_yearish(year_row[col])
+        v = _as_float(value_row[col])
         if y is None:
             continue
         years.append(int(y))
+        # Represent missing numeric values as NaN so that pandas can handle them
         values.append(float("nan") if v is None else float(v))
 
     df = pd.DataFrame(

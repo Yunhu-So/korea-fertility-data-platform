@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""
+Command‑line interface for ingesting a Total Fertility Rate Excel file.
+
+This script reads an Excel workbook containing fertility rates, extracts a
+normalized time series using the functions in :mod:`kfdp.io.excel_tfr`,
+validates the resulting DataFrame, and writes it out as a parquet file.
+"""
+
 import argparse
 from pathlib import Path
 
@@ -10,24 +18,35 @@ from kfdp.quality.checks import validate_tfr_long
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Ingest TFR Excel into Silver Parquet (long format)."
+    """Parse arguments, ingest the Excel file and write a parquet file."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Ingest a Total Fertility Rate Excel file into a silver parquet (long format)."
+        )
     )
-    p.add_argument("--input", type=str, required=True, help="Path to source Excel file")
-    p.add_argument(
-        "--output", type=str, required=True, help="Output Parquet path (silver)"
+    parser.add_argument(
+        "--input",
+        type=str,
+        required=True,
+        help="Path to the source Excel file",
     )
-    args = p.parse_args()
+    parser.add_argument(
+        "--output",
+        type=str,
+        required=True,
+        help="Path to write the output parquet file",
+    )
+    args = parser.parse_args()
 
-    in_path = Path(args.input)
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    df = extract_tfr_long_from_excel(in_path)
+    df = extract_tfr_long_from_excel(input_path)
     validate_tfr_long(df)
 
-    df.to_parquet(out_path, index=False)
-    print(f"[green]OK[/green] Wrote {len(df)} rows -> {out_path}")
+    df.to_parquet(output_path, index=False)
+    print(f"[green]OK[/green] Wrote {len(df)} rows -> {output_path}")
 
 
 if __name__ == "__main__":

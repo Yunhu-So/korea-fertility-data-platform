@@ -6,7 +6,8 @@ from kfdp.io.excel_tfr import extract_tfr_long_from_excel
 from kfdp.quality.checks import validate_tfr_long
 
 
-def test_extract_and_validate():
+def test_extract_and_validate() -> None:
+    """Ensure that ingestion and validation work end to end."""
     p = Path("data/bronze/tfr_source.xlsx")
     df = extract_tfr_long_from_excel(p)
     validate_tfr_long(df)

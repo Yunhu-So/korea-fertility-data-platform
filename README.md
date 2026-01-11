@@ -1,145 +1,138 @@
 # Korea Fertility Data Platform (KFDP)
 
-A reproducible, end-to-end data platform that turns raw fertility-rate spreadsheets into curated analytics marts and a read-only API—built with **Python**, **DuckDB**, **dbt**, **Airflow**, **Docker**, and **FastAPI**.
+This repository contains a reproducible data engineering project that takes raw fertility‑rate spreadsheets and turns them into a curated analytics mart with a read‑only API.  The goal of this project is to demonstrate how to build a small but complete data platform using **Python**, **DuckDB**, **dbt**, **Airflow**, **Docker** and **FastAPI**.
 
-> TL;DR: Excel → (Bronze/Silver) → DuckDB Warehouse → dbt Gold Mart + tests → Airflow orchestration + run metadata → FastAPI endpoints.
+At a high level the pipeline looks like this:
 
----
+1. **Ingestion** – an Excel file containing total fertility rate (TFR) by year is parsed into a tidy “long” parquet file.
+2. **Warehouse loading** – the parquet file is loaded into a local DuckDB database with separate schemas for raw and curated data.
+3. **Transformation** – [dbt](https://www.getdbt.com/) models transform the raw data into a gold‑level mart, computing useful metrics such as year‑over‑year deltas, five‑year moving averages and a below‑replacement flag.  dbt tests validate the results.
+4. **Orchestration** – [Airflow](https://airflow.apache.org/) schedules and runs the ingestion, loading and transformation tasks on a daily cadence inside Docker.  After a run finishes, basic run metadata is logged to the warehouse.
+5. **Serving** – a [FastAPI](https://fastapi.tiangolo.com/) application provides a simple REST interface to the curated data, including endpoints for the most recent metrics, a date‑range query and pipeline run history.
 
-## Why this project exists
-
-My original “Korea TFR” work started as a classic analysis notebook: load an Excel file, plot trends, compare variables, and try light forecasting.  
-That was useful for exploration, but it didn’t demonstrate **Data Engineering** fundamentals:
-
-- repeatable ingestion (not a one-off notebook)
-- layered storage and modeling (bronze/silver/gold)
-- automated orchestration (Airflow)
-- reproducible environments (Docker)
-- data quality checks (tests)
-- observability and run tracking
-- serving curated data as an interface (API)
-
-This repository is a rebuild of the same topic as a **data platform**: something you can run, schedule, validate, and consume.
+This implementation grew out of a personal research notebook.  By rebuilding it as a proper data platform you can reliably ingest new source files, run tests, view run history and serve data without touching a Jupyter notebook.
 
 ---
 
-## What it delivers (outputs)
+## Outputs
 
 ### Curated marts (DuckDB)
-- **`mart_tfr_metrics`** (gold): a clean, analysis-ready table with derived metrics (e.g., YoY deltas, moving average, replacement-level flags).
-- **`ops.pipeline_runs`** (ops): run metadata per pipeline execution (status, row counts, year ranges, timestamps).
 
-### Read-only API (FastAPI)
-Provides a small “data product” interface on top of curated tables:
-- `GET /health`
-- `GET /tfr/latest`
-- `GET /tfr?start=YYYY&end=YYYY`
-- `GET /runs`
+After running the pipeline there are two primary tables of interest in the DuckDB database:
+
+- **`mart_tfr_metrics`** (gold schema) – an analysis‑ready table with derived metrics such as the year‑over‑year change, a five‑year moving average and a flag indicating whether the value is below the replacement fertility threshold.
+- **`ops.pipeline_runs`** (ops schema) – metadata about each pipeline execution, including the timestamp, success/failure status, row counts and year ranges for the silver and gold layers.
+
+### Read‑only API (FastAPI)
+
+The API exposes a small data product on top of the mart.  It includes health information, the latest metrics and a query for historical ranges:
+
+- `GET /health` – check the database path and gold schema used by the API.
+- `GET /tfr/latest` – fetch the most recent row from the mart.
+- `GET /tfr?start=YYYY&end=YYYY&limit=N` – get all rows between `start` and `end` (inclusive), limited to `N` results.
+- `GET /runs` – list recent pipeline runs.
 
 ---
 
 ## Architecture
 
 ### Data layers
-- **Bronze**: raw input (spreadsheets) copied as-is
-- **Silver**: standardized, tidy/parquet representation (schema + basic validations)
-- **Warehouse**: DuckDB file (`warehouse/kfdp.duckdb`) used as a local analytics warehouse
-- **Gold**: dbt models that produce curated marts + dbt tests
+
+- **Bronze** – raw Excel input is preserved unchanged.
+- **Silver** – the raw file is normalized into a long‑format parquet file with basic validations.
+- **Warehouse** – a local DuckDB file (`warehouse/kfdp.duckdb`) stores the data; each layer has its own schema.
+- **Gold** – dbt models transform the silver data into a curated mart and run tests against it.
 
 ### Orchestration & reproducibility
-- **Airflow** runs the pipeline end-to-end inside Docker
-- **Docker Compose** brings up dependencies reliably on any machine
-- **Makefile** offers one-command workflows for local runs
+
+Airflow orchestrates the end‑to‑end pipeline inside Docker.  Docker Compose provides repeatable environments for both the Airflow stack and the API.  A Makefile offers convenience targets to run ingestion, loading, dbt and the entire pipeline locally.  Tests live in `tests/` to ensure ingestion produces clean data.
 
 ---
 
-## Tech stack
+## Repository layout
 
-- **Python**: ingestion, transformations, utilities
-- **DuckDB**: local warehouse (portable single-file DB)
-- **dbt**: transformations, modeling, testing, docs
-- **Airflow**: orchestration (DAGs)
-- **Docker**: reproducible development/runtime environment
-- **FastAPI**: read-only serving layer
+```
+api/                 # FastAPI application
+airflow/dags/        # Airflow DAG definitions
+data/                # bronze/silver artifacts (raw Excel and parquet)
+dbt/kfdp/            # dbt project (models, tests, profiles)
+scripts/             # utility scripts (loading, logging)
+src/kfdp/            # ingestion and validation code
+warehouse/           # DuckDB database file (generated)
+docker-compose*.yml  # Docker Compose configurations
+Makefile             # one‑command workflows
+```
 
 ---
 
-## Repository layout (high level)
+## Getting started
 
-api/ # FastAPI app (read-only endpoints)
-airflow/dags/ # Airflow DAGs (end-to-end pipeline)
-data/ # bronze/silver artifacts (raw + standardized)
-dbt/kfdp/ # dbt project (models, tests)
-scripts/ # warehouse loaders, run logger, utilities
-src/ # ingestion + transformation modules (silver)
-warehouse/ # DuckDB database file
-docker-compose*.yml # compose files (airflow, api, etc.)
-Makefile # one-command workflows
+1. **Set up a virtual environment**
+
+   ```sh
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt -r requirements-dev.txt
+   ```
+
+2. **Ingest and transform locally**
+
+   Run the entire pipeline outside of Docker:
+
+   ```sh
+   make pipeline
+   ```
+
+   This will ingest the Excel file, load it into DuckDB, run the dbt models and tests, and log a pipeline run.
+
+3. **Inspect the warehouse**
+
+   Connect to the DuckDB database to explore tables:
+
+   ```python
+   import duckdb
+
+   con = duckdb.connect("warehouse/kfdp.duckdb")
+   print(con.execute("SHOW ALL TABLES").df())
+   print(con.execute("SELECT * FROM ops.pipeline_runs ORDER BY run_ts DESC LIMIT 5").df())
+   con.close()
+   ```
+
+4. **Run with Airflow**
+
+   Bring up the Airflow stack via Docker Compose:
+
+   ```sh
+   make airflow-up
+   ```
+
+   Open the Airflow UI at <http://localhost:8080>, trigger the `kfdp_bronze_to_gold` DAG, then monitor task logs.  When done, shut down with `make airflow-down`.
+
+5. **Serve the API**
+
+   You can run the API locally using uvicorn:
+
+   ```sh
+   source .venv/bin/activate
+   uvicorn api.app:app --reload --port 8000
+   ```
+
+   Or spin it up via Docker Compose:
+
+   ```sh
+   docker compose -f docker-compose.api.yml up --build
+   ```
+
+   Once running, visit <http://127.0.0.1:8000/docs> for an interactive Swagger UI.
 
 ---
 
-## Quickstart (local)
+## Data quality & observability
 
-### 1) Setup
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-```
+Data quality is enforced through dbt tests on the gold mart.  Each pipeline run logs metadata—timestamp, status, input file, row counts and year ranges—into the `ops.pipeline_runs` table.  These logs make it easy to audit what happened, when it happened and how big the outputs were.
 
-### 2) Run the pipeline locally
-`make pipeline`
-### 3) Validate outputs (DuckDB)
-```bash
-python - << 'PY'
-import duckdb
-con = duckdb.connect("warehouse/kfdp.duckdb")
-print(con.execute("SHOW ALL TABLES").df())
-print(con.execute("SELECT * FROM ops.pipeline_runs ORDER BY run_ts DESC LIMIT 5").df())
-con.close()
-PY
-```
+---
 
-### Run with Airflow (Docker)
-Bring up the Airflow stack and run the DAG from the UI.
-`make airflow-up`
-Airflow UI: http://localhost:8080
-Trigger the DAG (e.g., kfdp_pipeline) and monitor task logs.
-Shut down:
-`make airflow-down`
+## Future improvements
 
-### API (FastAPI)
-Run locally
-```bash
-source .venv/bin/activate
-uvicorn api.app:app --reload --port 8000
-```
-Open:
-http://127.0.0.1:8000/docs
-
-### Run with Docker
-`docker compose -f docker-compose.api.yml up --build`
-Example calls:
-GET /health
-GET /tfr/latest
-GET /tfr?start=1990&end=2024
-GET /runs
-
-### Data quality & observability
-- dbt tests enforce expectations on curated tables (schema + constraints).
-- ops.pipeline_runs records each end-to-end execution with:
-    - run timestamp
-    - success/failure
-    - silver row counts + year range
-    - gold row counts
-
-This creates a minimal but real “production habit”: we can see what happened, when, and how big the output was.
-
-### Future improvements (roadmap)
-If I extend this beyond a local platform, the next steps would be:
-- CI/CD: run dbt tests + linting on every PR (GitHub Actions)
-- Docs hosting: publish dbt docs to GitHub Pages automatically
-- Incremental loads: detect new/changed input and load incrementally
-- Data contracts: explicit schema versions and compatibility checks
-- Serving: pagination, caching, and versioned endpoints
-- Cloud migration: S3 + Athena/Iceberg or BigQuery/Snowflake backend
+Potential next steps include adding continuous integration for tests and linting, publishing dbt documentation to GitHub Pages, implementing incremental loading, defining explicit data contracts, adding pagination/caching/versioning in the API and migrating storage to a cloud data lake.

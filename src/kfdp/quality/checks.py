@@ -1,9 +1,30 @@
 from __future__ import annotations
 
+"""
+Validation routines for Total Fertility Rate data.
+
+These checks enforce basic expectations about the extracted TFR DataFrame,
+ensuring that required columns are present, values are non‑negative and
+unique per year, and that there are no missing years or values.
+"""
+
 import pandas as pd
 
 
 def validate_tfr_long(df: pd.DataFrame) -> None:
+    """
+    Raise an exception if the TFR DataFrame does not meet basic quality expectations.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The DataFrame produced by ``extract_tfr_long_from_excel``.
+
+    Raises
+    ------
+    ValueError
+        If any of the required constraints are violated.
+    """
     required_cols = {"country", "indicator", "year", "value", "source_file"}
     missing = required_cols - set(df.columns)
     if missing:

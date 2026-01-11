@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Basic deps (optional but useful)
+# Install basic tools such as git
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
   && rm -rf /var/lib/apt/lists/*
@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
-# Copy minimal project files (compose에서 volume mount로 덮어씀)
+# Copy minimal project files; compose mounts will override these during development
 COPY src ./src
 COPY scripts ./scripts
 COPY dbt ./dbt
