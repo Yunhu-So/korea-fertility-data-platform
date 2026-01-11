@@ -1,0 +1,14 @@
+services:
+  kfdp-api:
+    build: .
+    container_name: kfdp-api
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONPATH=/app/src
+      - KFDP_DB_PATH=warehouse/kfdp.duckdb
+    ports:
+      - "8000:8000"
+    command: >
+      bash -lc "uvicorn api.app:app --host 0.0.0.0 --port 8000"
